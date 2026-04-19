@@ -49,21 +49,36 @@ def extract_pdf_metadata(pdf_bytes: bytes) -> dict:
     return result
 
 
+def _join_lines(lines: list[str]) -> str:
+    result = ""
+    for line in lines:
+        line = line.rstrip("\n")
+        if not result:
+            result = line
+        elif result.endswith("-"):
+            result = result[:-1] + line.lstrip()
+        else:
+            result = result.rstrip() + " " + line.lstrip()
+    return result.strip()
+
+
 def extract_blocks(pdf_bytes: bytes) -> list[dict]:
     laparams = LAParams(line_margin=0.5, word_margin=0.1, char_margin=2.0)
     blocks = []
     for page_layout in extract_pages(BytesIO(pdf_bytes), laparams=laparams):
         for element in page_layout:
             if isinstance(element, LTTextBox):
+                lines, sizes = [], []
                 for line in element:
                     if not isinstance(line, LTTextLine):
                         continue
-                    text = line.get_text().strip()
-                    if not text:
+                    line_text = line.get_text()
+                    if not line_text.strip():
                         continue
-                    sizes = [c.size for c in line if isinstance(c, LTChar)]
-                    if sizes:
-                        blocks.append({"text": text, "size": statistics.mean(sizes)})
+                    lines.append(line_text)
+                    sizes.extend(c.size for c in line if isinstance(c, LTChar))
+                if lines and sizes:
+                    blocks.append({"text": _join_lines(lines), "size": statistics.mean(sizes)})
     return blocks
 
 
