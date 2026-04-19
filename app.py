@@ -8,6 +8,7 @@ import httpx
 from fastapi import FastAPI, File, UploadFile, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
+from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 from pdfminer.high_level import extract_pages
@@ -21,8 +22,15 @@ GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GITHUB_USER = os.getenv("GITHUB_USER")
 GITHUB_REPO = os.getenv("GITHUB_REPO")
 GITHUB_BRANCH = os.getenv("GITHUB_BRANCH", "gh-pages")
+CORS_ORIGIN = os.getenv("CORS_ORIGIN", f"https://{os.getenv('GITHUB_USER', '*')}.github.io")
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[CORS_ORIGIN],
+    allow_methods=["POST"],
+    allow_headers=["*"],
+)
 templates = Jinja2Templates(directory="templates")
 
 
