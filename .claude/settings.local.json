@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(where python *)",
+      "Bash(where python3 *)",
+      "Bash(where py *)",
+      "Read(//c/Users/schroe_jan/AppData/Local/Programs/**)",
+      "Read(//c/Users/schroe_jan/AppData/Local/Microsoft/WindowsApps/**)",
+      "Bash(python -c \"import sys; print\\(sys.executable\\); import pip; print\\(pip.__file__\\)\")"
+    ]
+  }
+}
