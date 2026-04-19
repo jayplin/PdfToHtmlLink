@@ -21,7 +21,7 @@ load_dotenv()
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
 GITHUB_USER = os.getenv("GITHUB_USER")
 GITHUB_REPO = os.getenv("GITHUB_REPO")
-GITHUB_BRANCH = os.getenv("GITHUB_BRANCH", "gh-pages")
+GITHUB_BRANCH = "main"
 CORS_ORIGIN = os.getenv("CORS_ORIGIN", f"https://{os.getenv('GITHUB_USER', '*')}.github.io")
 
 app = FastAPI()
