@@ -3,11 +3,11 @@ import hashlib
 import base64
 import statistics
 from io import BytesIO
+from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, File, UploadFile, HTTPException, Request
+from fastapi import FastAPI, File, UploadFile, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
@@ -31,7 +31,8 @@ app.add_middleware(
     allow_methods=["POST"],
     allow_headers=["*"],
 )
-templates = Jinja2Templates(directory="templates")
+
+_INDEX_HTML = Path("templates/index.html").read_text(encoding="utf-8")
 
 
 def extract_pdf_metadata(pdf_bytes: bytes) -> dict:
@@ -125,20 +126,20 @@ async def push_to_github(filename: str, html: str) -> str:
 
 
 @app.get("/", response_class=HTMLResponse)
-async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+async def index():
+    return _INDEX_HTML
 
 
 @app.post("/upload")
 async def upload(file: UploadFile = File(...)):
-    if not file.filename.lower().endswith(".pdf"):
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are accepted")
 
     pdf_bytes = await file.read()
     sha_id = hashlib.sha256(pdf_bytes).hexdigest()[:12]
 
     meta = extract_pdf_metadata(pdf_bytes)
-    title = meta["title"] or file.filename.removesuffix(".pdf")
+    title = meta["title"] or (file.filename or "document").removesuffix(".pdf")
     author = meta["author"]
 
     blocks = classify_blocks(extract_blocks(pdf_bytes))

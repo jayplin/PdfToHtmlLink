@@ -3,52 +3,109 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>PDF → Kobo</title>
+<title>PDF to Web Page</title>
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:Georgia,serif;background:#f5f5f0;display:flex;align-items:center;justify-content:center;min-height:100vh;padding:1.5em}
-  .card{background:#fff;border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,.1);padding:2.5em 2em;max-width:480px;width:100%}
-  h1{font-size:1.4em;margin-bottom:1.2em;color:#333}
+  body{font-family:Georgia,serif;background:#f5f5f0;color:#222;padding:2em 1.5em;min-height:100vh}
+  .wrap{max-width:560px;margin:0 auto}
+
+  h1{font-size:1.6em;font-weight:normal;margin-bottom:.3em}
+  .tagline{color:#666;font-size:1em;margin-bottom:2em;line-height:1.5}
+
+  .steps{display:flex;gap:1em;margin-bottom:2em;flex-wrap:wrap}
+  .step{flex:1;min-width:140px;background:#fff;border-radius:8px;padding:1em;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+  .step-num{font-size:.75em;font-weight:bold;color:#aaa;letter-spacing:.08em;margin-bottom:.4em}
+  .step p{font-size:.88em;color:#444;line-height:1.5}
+
+  .card{background:#fff;border-radius:8px;box-shadow:0 2px 12px rgba(0,0,0,.1);padding:2em}
+
   #drop{border:2px dashed #bbb;border-radius:6px;padding:2.5em 1em;text-align:center;cursor:pointer;transition:border-color .2s,background .2s;color:#888;font-size:.95em}
   #drop.over{border-color:#555;background:#f9f9f6;color:#444}
   #file{display:none}
-  #progress{display:none;margin-top:1.2em}
+
+  #progress{display:none;margin-top:1.4em}
   .bar-wrap{background:#eee;border-radius:4px;height:6px;overflow:hidden}
   .bar{background:#555;width:0%;height:100%;transition:width .3s}
   #status{font-size:.85em;color:#666;margin-top:.5em}
-  #result{display:none;margin-top:1.4em}
-  #result label{font-size:.8em;color:#888;display:block;margin-bottom:.3em}
-  .url-row{display:flex;gap:.5em}
-  #url-box{flex:1;font-family:monospace;font-size:.8em;border:1px solid #ddd;border-radius:4px;padding:.45em .6em;background:#fafafa;word-break:break-all}
-  #copy-btn{white-space:nowrap;padding:.45em .9em;border:1px solid #bbb;border-radius:4px;background:#fff;cursor:pointer;font-size:.85em}
+
+  #result{display:none;margin-top:1.6em;border-top:1px solid #eee;padding-top:1.4em}
+  #result-title{font-size:1em;font-weight:bold;margin-bottom:.3em}
+  #result-meta{font-size:.82em;color:#888;margin-bottom:1em}
+  .url-label{font-size:.8em;color:#888;margin-bottom:.4em}
+  .url-row{display:flex;gap:.5em;margin-bottom:.9em}
+  #url-box{flex:1;font-family:monospace;font-size:.78em;border:1px solid #ddd;border-radius:4px;padding:.5em .6em;background:#fafafa;word-break:break-all;line-height:1.4}
+  #copy-btn{white-space:nowrap;padding:.5em 1em;border:1px solid #bbb;border-radius:4px;background:#fff;cursor:pointer;font-size:.85em;align-self:flex-start}
   #copy-btn:active{background:#eee}
-  #meta{font-size:.82em;color:#888;margin-top:.6em}
+
+  .next-steps{background:#f9f9f6;border-radius:6px;padding:1em 1.1em;font-size:.85em;color:#555;line-height:1.7}
+  .next-steps strong{color:#333}
+
   #error{display:none;margin-top:1em;color:#c0392b;font-size:.85em}
+
+  .usecases{margin-top:2em;font-size:.85em;color:#888;line-height:1.8}
+  .usecases strong{color:#666;display:block;margin-bottom:.3em}
 </style>
 </head>
 <body>
-<div class="card">
-  <h1>PDF → Kobo</h1>
-  <div id="drop">
-    Drop a PDF here or <u>click to browse</u>
-    <input id="file" type="file" accept=".pdf">
-  </div>
-  <div id="progress">
-    <div class="bar-wrap"><div class="bar" id="bar"></div></div>
-    <div id="status">Uploading…</div>
-  </div>
-  <div id="result">
-    <label>GitHub Pages URL</label>
-    <div class="url-row">
-      <div id="url-box"></div>
-      <button id="copy-btn">Copy</button>
+<div class="wrap">
+  <h1>Turn any PDF into a web page</h1>
+  <p class="tagline">Upload a PDF and get a permanent link — a clean, readable HTML page<br>hosted for free that works with Kobo, Instapaper, or anywhere else.</p>
+
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">STEP 1</div>
+      <p>Upload your PDF below</p>
     </div>
-    <div id="meta"></div>
+    <div class="step">
+      <div class="step-num">STEP 2</div>
+      <p>We convert it to a clean HTML page and store it permanently</p>
+    </div>
+    <div class="step">
+      <div class="step-num">STEP 3</div>
+      <p>Copy the link and use it anywhere — Kobo, Instapaper, a browser</p>
+    </div>
   </div>
-  <div id="error"></div>
+
+  <div class="card">
+    <div id="drop">
+      Drop a PDF here or <u>click to browse</u>
+      <input id="file" type="file" accept=".pdf">
+    </div>
+
+    <div id="progress">
+      <div class="bar-wrap"><div class="bar" id="bar"></div></div>
+      <div id="status">Converting…</div>
+    </div>
+
+    <div id="result">
+      <div id="result-title"></div>
+      <div id="result-meta"></div>
+      <div class="url-label">Your permanent link</div>
+      <div class="url-row">
+        <div id="url-box"></div>
+        <button id="copy-btn">Copy</button>
+        <button id="open-btn">Open</button>
+      </div>
+      <div class="next-steps">
+        <strong>What to do with this link:</strong>
+        <b>Kobo via Instapaper:</b> paste the link into <a href="https://www.instapaper.com" target="_blank">Instapaper</a> — it will appear in your Kobo's reading list on next sync.<br>
+        <b>Read now:</b> open the link directly in any browser — it's a clean, distraction-free article page.<br>
+        <b>Share or archive:</b> the link is permanent. You can bookmark it, email it, or add it to Pocket, Readwise, or any read-later service.
+      </div>
+    </div>
+
+    <div id="error"></div>
+  </div>
+
+  <div class="usecases">
+    <strong>Other ways people use this</strong>
+    Research papers and reports that you want to read on your e-reader ·
+    Long documents you want to highlight in Readwise ·
+    PDFs with no accessible web version ·
+    Archiving a clean copy of any document as a simple URL
+  </div>
 </div>
 <script>
-// ← set this to your Coolify server URL
 const API = 'https://pdftohtmllink.canivete.eu';
 
 const drop = document.getElementById('drop');
@@ -59,7 +116,6 @@ const status = document.getElementById('status');
 const result = document.getElementById('result');
 const urlBox = document.getElementById('url-box');
 const copyBtn = document.getElementById('copy-btn');
-const meta = document.getElementById('meta');
 const errorDiv = document.getElementById('error');
 
 drop.addEventListener('click', () => fileInput.click());
@@ -77,7 +133,7 @@ function handleFile(file) {
   result.style.display = 'none';
   progress.style.display = 'block';
   bar.style.width = '10%';
-  status.textContent = 'Uploading…';
+  status.textContent = 'Uploading and converting…';
 
   const fd = new FormData();
   fd.append('file', file);
@@ -92,8 +148,9 @@ function handleFile(file) {
     if (xhr.status === 200) {
       const data = JSON.parse(xhr.responseText);
       status.textContent = 'Done.';
+      document.getElementById('result-title').textContent = data.title;
+      document.getElementById('result-meta').textContent = data.words.toLocaleString() + ' words';
       urlBox.textContent = data.url;
-      meta.textContent = `"${data.title}" · ${data.words.toLocaleString()} words`;
       result.style.display = 'block';
     } else {
       progress.style.display = 'none';
@@ -101,7 +158,7 @@ function handleFile(file) {
       catch { showError('Upload failed (' + xhr.status + ')'); }
     }
   };
-  xhr.onerror = () => { progress.style.display = 'none'; showError('Network error.'); };
+  xhr.onerror = () => { progress.style.display = 'none'; showError('Network error — please try again.'); };
   xhr.send(fd);
 }
 
@@ -110,6 +167,10 @@ copyBtn.addEventListener('click', () => {
     copyBtn.textContent = 'Copied!';
     setTimeout(() => copyBtn.textContent = 'Copy', 1500);
   });
+});
+
+document.getElementById('open-btn').addEventListener('click', () => {
+  window.open(urlBox.textContent, '_blank');
 });
 
 function showError(msg) { errorDiv.textContent = msg; errorDiv.style.display = 'block'; }
