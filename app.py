@@ -1,13 +1,21 @@
 import os
 import hashlib
 import base64
+import statistics
+from io import BytesIO
 from pathlib import Path
+from typing import Literal
 
 import httpx
-from fastapi import FastAPI, File, UploadFile, HTTPException
+from fastapi import FastAPI, File, Form, UploadFile, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+
+from pdfminer.high_level import extract_pages
+from pdfminer.layout import LAParams, LTTextBox, LTChar, LTTextLine
+from pdfminer.pdfparser import PDFParser
+from pdfminer.pdfdocument import PDFDocument
 
 load_dotenv()
 
@@ -28,6 +36,101 @@ app.add_middleware(
 
 _INDEX_HTML = Path("templates/index.html").read_text(encoding="utf-8")
 
+
+# ── Local PDF engine ──────────────────────────────────────────────────────────
+
+def _extract_metadata(pdf_bytes: bytes) -> dict:
+    parser = PDFParser(BytesIO(pdf_bytes))
+    doc = PDFDocument(parser)
+    result = {"title": "", "author": ""}
+    if doc.info:
+        raw = doc.info[0]
+        for key in ("title", "author"):
+            val = raw.get(key.capitalize(), b"") or raw.get(key, b"")
+            if isinstance(val, bytes):
+                val = val.decode("utf-8", errors="replace")
+            result[key] = str(val).strip()
+    return result
+
+
+def _join_lines(lines: list[str]) -> str:
+    result = ""
+    for line in lines:
+        line = line.rstrip("\n")
+        if not result:
+            result = line
+        elif result.endswith("-"):
+            result = result[:-1] + line.lstrip()
+        else:
+            result = result.rstrip() + " " + line.lstrip()
+    return result.strip()
+
+
+def _extract_blocks(pdf_bytes: bytes) -> list[dict]:
+    laparams = LAParams(line_margin=0.5, word_margin=0.1, char_margin=2.0)
+    blocks = []
+    for page_layout in extract_pages(BytesIO(pdf_bytes), laparams=laparams):
+        for element in page_layout:
+            if isinstance(element, LTTextBox):
+                lines, sizes = [], []
+                for line in element:
+                    if not isinstance(line, LTTextLine):
+                        continue
+                    line_text = line.get_text()
+                    if not line_text.strip():
+                        continue
+                    lines.append(line_text)
+                    sizes.extend(c.size for c in line if isinstance(c, LTChar))
+                if lines and sizes:
+                    blocks.append({"text": _join_lines(lines), "size": statistics.mean(sizes)})
+    return blocks
+
+
+def _classify_blocks(blocks: list[dict]) -> list[dict]:
+    if not blocks:
+        return []
+    median = statistics.median(b["size"] for b in blocks)
+    result = []
+    for b in blocks:
+        s = b["size"]
+        tag = "h1" if s >= median * 1.5 else "h2" if s >= median * 1.25 else "p"
+        result.append({"tag": tag, "text": b["text"]})
+    return result
+
+
+def parse_local(pdf_bytes: bytes, filename: str) -> dict:
+    meta = _extract_metadata(pdf_bytes)
+    blocks = _classify_blocks(_extract_blocks(pdf_bytes))
+
+    def esc(t):
+        return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    html_body = "\n".join(f"<{b['tag']}>{esc(b['text'])}</{b['tag']}>" for b in blocks)
+    words = sum(len(b["text"].split()) for b in blocks)
+    return {
+        "title": meta["title"] or filename.removesuffix(".pdf"),
+        "author": meta["author"],
+        "html": html_body,
+        "words": words,
+    }
+
+
+# ── Instaparser engine ────────────────────────────────────────────────────────
+
+async def parse_instaparser(pdf_bytes: bytes, filename: str) -> dict:
+    async with httpx.AsyncClient(timeout=60) as client:
+        resp = await client.post(
+            "https://www.instaparser.com/api/1/pdf",
+            headers={"Authorization": f"Bearer {INSTAPARSER_API_KEY}"},
+            files={"file": (filename, pdf_bytes, "application/pdf")},
+            data={"output": "html"},
+        )
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"Instaparser error {resp.status_code}: {resp.text}")
+    return resp.json()
+
+
+# ── Shared rendering & GitHub push ────────────────────────────────────────────
 
 def render_article(html_body: str, title: str, author: str) -> str:
     def esc(t: str) -> str:
@@ -56,26 +159,10 @@ def render_article(html_body: str, title: str, author: str) -> str:
 </html>"""
 
 
-async def parse_pdf(pdf_bytes: bytes, filename: str) -> dict:
-    async with httpx.AsyncClient(timeout=60) as client:
-        resp = await client.post(
-            "https://www.instaparser.com/api/1/pdf",
-            headers={"Authorization": f"Bearer {INSTAPARSER_API_KEY}"},
-            files={"file": (filename, pdf_bytes, "application/pdf")},
-            data={"output": "html"},
-        )
-    if resp.status_code != 200:
-        raise HTTPException(status_code=502, detail=f"Instaparser error {resp.status_code}: {resp.text}")
-    return resp.json()
-
-
 async def push_to_github(filename: str, html: str) -> str:
     api_url = f"https://api.github.com/repos/{GITHUB_USER}/{GITHUB_REPO}/contents/{filename}"
     pages_url = f"https://{GITHUB_USER}.github.io/{GITHUB_REPO}/{filename}"
-    headers = {
-        "Authorization": f"token {GITHUB_TOKEN}",
-        "Accept": "application/vnd.github+json",
-    }
+    headers = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github+json"}
     payload = {"message": f"Add {filename}", "content": base64.b64encode(html.encode()).decode(), "branch": GITHUB_BRANCH}
     async with httpx.AsyncClient(timeout=30) as client:
         resp = await client.put(api_url, json=payload, headers=headers)
@@ -86,26 +173,36 @@ async def push_to_github(filename: str, html: str) -> str:
         raise HTTPException(status_code=502, detail=f"GitHub API {resp.status_code}: {resp.text}")
 
 
+# ── Routes ────────────────────────────────────────────────────────────────────
+
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return _INDEX_HTML
 
 
 @app.post("/upload")
-async def upload(file: UploadFile = File(...)):
+async def upload(
+    file: UploadFile = File(...),
+    engine: Literal["local", "instaparser"] = Form("local"),
+):
     if not file.filename or not file.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Only PDF files are accepted")
 
     pdf_bytes = await file.read()
     sha_id = hashlib.sha256(pdf_bytes).hexdigest()[:12]
+    # include engine in filename so same PDF parsed by different engines gets its own page
+    filename = f"{sha_id}-{engine}.html"
 
-    data = await parse_pdf(pdf_bytes, file.filename)
+    if engine == "instaparser":
+        data = await parse_instaparser(pdf_bytes, file.filename)
+    else:
+        data = parse_local(pdf_bytes, file.filename)
 
     title = data.get("title") or file.filename.removesuffix(".pdf")
-    author = data.get("author", "")
+    author = data.get("author") or ""
     words = data.get("words", 0)
     html_body = data.get("html", "")
 
     html = render_article(html_body, title, author)
-    url = await push_to_github(f"{sha_id}.html", html)
+    url = await push_to_github(filename, html)
     return JSONResponse({"url": url, "title": title, "words": words})
