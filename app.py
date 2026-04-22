@@ -1,8 +1,6 @@
 import os
 import hashlib
 import base64
-import statistics
-from io import BytesIO
 from pathlib import Path
 
 import httpx
@@ -11,11 +9,6 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
-from pdfminer.high_level import extract_pages
-from pdfminer.layout import LAParams, LTTextBox, LTChar, LTTextLine
-from pdfminer.pdfparser import PDFParser
-from pdfminer.pdfdocument import PDFDocument
-
 load_dotenv()
 
 GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
@@ -23,6 +16,7 @@ GITHUB_USER = os.getenv("GITHUB_USER")
 GITHUB_REPO = os.getenv("GITHUB_REPO")
 GITHUB_BRANCH = "main"
 CORS_ORIGIN = os.getenv("CORS_ORIGIN", f"https://{os.getenv('GITHUB_USER', '*')}.github.io")
+INSTAPARSER_API_KEY = os.getenv("INSTAPARSER_API_KEY")
 
 app = FastAPI()
 app.add_middleware(
@@ -35,70 +29,10 @@ app.add_middleware(
 _INDEX_HTML = Path("templates/index.html").read_text(encoding="utf-8")
 
 
-def extract_pdf_metadata(pdf_bytes: bytes) -> dict:
-    parser = PDFParser(BytesIO(pdf_bytes))
-    doc = PDFDocument(parser)
-    result = {"title": "", "author": ""}
-    if doc.info:
-        raw = doc.info[0]
-        for key in ("title", "author"):
-            val = raw.get(key.capitalize(), b"") or raw.get(key, b"")
-            if isinstance(val, bytes):
-                val = val.decode("utf-8", errors="replace")
-            result[key] = str(val).strip()
-    return result
-
-
-def _join_lines(lines: list[str]) -> str:
-    result = ""
-    for line in lines:
-        line = line.rstrip("\n")
-        if not result:
-            result = line
-        elif result.endswith("-"):
-            result = result[:-1] + line.lstrip()
-        else:
-            result = result.rstrip() + " " + line.lstrip()
-    return result.strip()
-
-
-def extract_blocks(pdf_bytes: bytes) -> list[dict]:
-    laparams = LAParams(line_margin=0.5, word_margin=0.1, char_margin=2.0)
-    blocks = []
-    for page_layout in extract_pages(BytesIO(pdf_bytes), laparams=laparams):
-        for element in page_layout:
-            if isinstance(element, LTTextBox):
-                lines, sizes = [], []
-                for line in element:
-                    if not isinstance(line, LTTextLine):
-                        continue
-                    line_text = line.get_text()
-                    if not line_text.strip():
-                        continue
-                    lines.append(line_text)
-                    sizes.extend(c.size for c in line if isinstance(c, LTChar))
-                if lines and sizes:
-                    blocks.append({"text": _join_lines(lines), "size": statistics.mean(sizes)})
-    return blocks
-
-
-def classify_blocks(blocks: list[dict]) -> list[dict]:
-    if not blocks:
-        return []
-    median = statistics.median(b["size"] for b in blocks)
-    result = []
-    for b in blocks:
-        s = b["size"]
-        tag = "h1" if s >= median * 1.5 else "h2" if s >= median * 1.25 else "p"
-        result.append({"tag": tag, "text": b["text"]})
-    return result
-
-
-def render_article(blocks: list[dict], title: str, author: str) -> str:
+def render_article(html_body: str, title: str, author: str) -> str:
     def esc(t: str) -> str:
         return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
 
-    rows = "\n".join(f"<{b['tag']}>{esc(b['text'])}</{b['tag']}>" for b in blocks)
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -116,10 +50,23 @@ def render_article(blocks: list[dict], title: str, author: str) -> str:
 </head>
 <body>
 <div id="article-content">
-{rows}
+{html_body}
 </div>
 </body>
 </html>"""
+
+
+async def parse_pdf(pdf_bytes: bytes, filename: str) -> dict:
+    async with httpx.AsyncClient(timeout=60) as client:
+        resp = await client.post(
+            "https://www.instaparser.com/api/1/pdf",
+            headers={"Authorization": f"Bearer {INSTAPARSER_API_KEY}"},
+            files={"file": (filename, pdf_bytes, "application/pdf")},
+            data={"output": "html"},
+        )
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"Instaparser error {resp.status_code}: {resp.text}")
+    return resp.json()
 
 
 async def push_to_github(filename: str, html: str) -> str:
@@ -134,7 +81,6 @@ async def push_to_github(filename: str, html: str) -> str:
         resp = await client.put(api_url, json=payload, headers=headers)
         if resp.status_code in (200, 201):
             return pages_url
-        # 422 = file already exists (sha required to update) → same content, just return URL
         if resp.status_code == 422:
             return pages_url
         raise HTTPException(status_code=502, detail=f"GitHub API {resp.status_code}: {resp.text}")
@@ -153,13 +99,13 @@ async def upload(file: UploadFile = File(...)):
     pdf_bytes = await file.read()
     sha_id = hashlib.sha256(pdf_bytes).hexdigest()[:12]
 
-    meta = extract_pdf_metadata(pdf_bytes)
-    title = meta["title"] or (file.filename or "document").removesuffix(".pdf")
-    author = meta["author"]
+    data = await parse_pdf(pdf_bytes, file.filename)
 
-    blocks = classify_blocks(extract_blocks(pdf_bytes))
-    words = sum(len(b["text"].split()) for b in blocks)
-    html = render_article(blocks, title, author)
+    title = data.get("title") or file.filename.removesuffix(".pdf")
+    author = data.get("author", "")
+    words = data.get("words", 0)
+    html_body = data.get("html", "")
 
+    html = render_article(html_body, title, author)
     url = await push_to_github(f"{sha_id}.html", html)
     return JSONResponse({"url": url, "title": title, "words": words})
